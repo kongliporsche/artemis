@@ -147,8 +147,16 @@ async def execute_task(
 
     if target_serial:
         from artemis.context import DevicePlatform
+        from artemis.drivers.ios.ios_driver import IOS_SERIAL_PREFIX
 
-        config.for_device(DevicePlatform.ANDROID, target_serial)
+        is_ios = target_serial.startswith(IOS_SERIAL_PREFIX)
+        config.for_device(DevicePlatform.IOS if is_ios else DevicePlatform.ANDROID, target_serial)
+        if is_ios:
+            if app_path or locked_app_package:
+                raise ValueError(
+                    "iOS requires a preinstalled app; APK install and app lock are Android-only."
+                )
+            config.with_video_recording_tools(enabled=False)
 
     if graph_config_callbacks:
         config.with_graph_config_callbacks(graph_config_callbacks)
@@ -278,7 +286,7 @@ def run_command(
         typer.Option(
             "--device-serial",
             "-s",
-            help="Target specific Android device by serial number (e.g. emulator-5554).",
+            help="Target a device by Android serial or ios:<CoreDevice identifier>.",
         ),
     ] = None,
     session_id: Annotated[

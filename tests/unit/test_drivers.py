@@ -23,6 +23,7 @@ import pytest
 from artemis.drivers.base import KeyCode, ScreenData, SwipeDirection
 from artemis.drivers.mock.mock_driver import MockDeviceDriver
 from artemis.drivers.android.adb_driver import AndroidAdbDriver
+from artemis.drivers.ios.ios_driver import IOSDeviceDriver
 from third_party.mobile_use.controllers.types import ElementQuery
 
 
@@ -31,6 +32,35 @@ _ONE_PIXEL_PNG = base64.b64encode(
         "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
     )
 ).decode("ascii")
+
+
+@pytest.mark.asyncio
+async def test_ios_standalone_accessibility_does_not_depend_on_initial_dimensions(monkeypatch):
+    driver = IOSDeviceDriver("ios:test", 1080, 2400)
+    elements = [{"text": "Search", "bounds": "[15,30][315,120]", "focused": True}]
+    helper = AsyncMock(return_value={"width": 1179, "height": 2556, "elements": elements})
+    monkeypatch.setattr(driver, "_call", helper)
+
+    assert await driver.get_accessibility_elements() == elements
+    helper.assert_awaited_once_with("accessibility")
+
+
+@pytest.mark.asyncio
+async def test_ios_screenshot_keeps_image_when_accessibility_dimensions_differ(monkeypatch):
+    monkeypatch.setenv("ARTEMIS_IOS_ACCESSIBILITY", "1")
+    driver = IOSDeviceDriver("ios:test", 1080, 2400)
+    helper = AsyncMock(
+        side_effect=[
+            {"width": 1179, "height": 2556, "png_base64": _ONE_PIXEL_PNG},
+            {"width": 2556, "height": 1179, "elements": [{"text": "Search"}]},
+        ]
+    )
+    monkeypatch.setattr(driver, "_call", helper)
+
+    result = await driver.get_screen_data()
+
+    assert result.screenshot_base64 == _ONE_PIXEL_PNG
+    assert result.ui_elements == []
 
 
 @pytest.mark.asyncio

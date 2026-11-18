@@ -1706,7 +1706,7 @@
       <section class="task-launcher-view">
 
         <!-- Prerequisites Drop Alert if any blocker probe is not passing -->
-        @if (hasReadinessReport() && !isReady()) {
+        @if (hasReadinessReport() && !canLaunchTask() && !selectedTaskSerial()) {
           <div class="launcher-warning-bar" (click)="setTab('diagnostics')">
             <span class="material-symbols-outlined warn-icon">{{ adbProbe()?.summary === 'Device Locked' ? 'lock' : 'warning' }}</span>
             <span>
@@ -1720,6 +1720,25 @@
 
         <!-- Task composer -->
         <div class="composer-card" [class.is-pro-active]="selectedProfile() === 'pro'">
+          <div class="composer-device-picker">
+            <label for="task-device">Device</label>
+            <select id="task-device" [ngModel]="selectedTaskSerial()" (ngModelChange)="selectedTaskSerial.set($event)">
+              <option value="">Android (automatic)</option>
+              @for (device of taskDevices(); track device.serial) {
+                <option [value]="device.serial" [disabled]="device.state !== 'device'">
+                  {{ device.platform === 'ios' ? 'iOS USB' : 'Android' }} · {{ device.model || device.serial }}
+                  {{ device.state !== 'device' ? ' · ' + device.state : (device.is_busy ? ' · Busy' : ' · Ready') }}
+                </option>
+              }
+            </select>
+            <button type="button" (click)="refreshTaskDevices()">Refresh</button>
+            @if (selectedTaskSerial().startsWith('ios:')) {
+              <small>Unlock the iPhone and keep it awake. Use a preinstalled app's bundle ID in the goal. Step screenshots only.</small>
+            }
+            @if (taskDeviceError(); as error) {
+              <small role="status">{{ error }}</small>
+            }
+          </div>
           
           <!-- Smart Intent Recommendation Strip (if detected) -->
           @if (showIntentSuggestion()) {
@@ -1820,8 +1839,8 @@
                 type="button"
                 class="btn-run-composer"
                 [class.btn-run-pro]="selectedProfile() === 'pro'"
-                [disabled]="!taskGoal().trim() || isSubmitting() || !isReady()"
-                [title]="!isReady() ? (adbProbe()?.summary === 'Device Locked' ? 'Unlock the Android device before running' : 'Complete System Setup before running') : 'Run task'"
+                [disabled]="!taskGoal().trim() || isSubmitting() || !canLaunchTask()"
+                [title]="canLaunchTask() ? 'Run task' : 'Check device and System Setup before running'"
                 (click)="runTask()"
               >
                 @if (isSubmitting()) {

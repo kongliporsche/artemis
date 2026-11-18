@@ -171,7 +171,9 @@ async def perception_node(state: State, ctx: ArtemisContext) -> dict:
 
     # 3. Perform OCR (if configured, else fallback to pure XML layout)
     ocr_results = []
-    if is_ocr_configured():
+    if device_data.platform == "ios" and xml_hierarchy:
+        logger.debug("Using iOS accessibility elements without OCR.")
+    elif is_ocr_configured():
         screen_height = device_data.height
         status_bar_height = _detect_status_bar_height(xml_hierarchy, screen_height)
         try:

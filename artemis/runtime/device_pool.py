@@ -21,10 +21,13 @@ from dataclasses import dataclass
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from typing import Any
 
+from artemis.drivers.ios.ios_driver import IOS_SERIAL_PREFIX, IOSDeviceDriver
+from artemis.runtime.adb_endpoint import AdbEndpoint
 from artemis.runtime.device_lock import DeviceExecutionLock
 from artemis.toolchain import toolchain
 from third_party.mobile_use.utils.logger import get_logger
@@ -46,6 +49,7 @@ class DeviceStatus:
     active_task_desc: str | None = None
     active_session_id: str | None = None
     acquired_at: str | None = None
+    platform: str = "android"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +63,7 @@ class DeviceStatus:
             "active_task_desc": self.active_task_desc,
             "active_session_id": self.active_session_id,
             "acquired_at": self.acquired_at,
+            "platform": self.platform,
         }
 
 
@@ -87,6 +92,36 @@ class DevicePool:
         self._warmed = False
         self._sync_query_gate = threading.Lock()
         self._async_inflight: tuple[asyncio.AbstractEventLoop, asyncio.Task] | None = None
+
+    async def list_ios_devices_async(self) -> list[DeviceStatus]:
+        if (
+            sys.platform != "darwin"
+            or os.environ.get("ARTEMIS_CLOUD_MODE") == "1"
+            or not shutil.which(os.environ.get("ARTEMIS_IOS_HELPER", "artemis-ios"))
+        ):
+            return []
+        found = await IOSDeviceDriver.list_devices()
+        owners = DeviceExecutionLock.get_active_owners()
+        scope = AdbEndpoint.local().identity
+        devices = []
+        for entry in found:
+            serial = IOS_SERIAL_PREFIX + entry["id"]
+            owner = owners.get(DeviceExecutionLock._normalize_lock_id(serial, scope))
+            devices.append(
+                DeviceStatus(
+                    serial=serial,
+                    state="device" if entry["state"] == "ready" else entry["state"],
+                    model=entry["name"],
+                    product=entry["version"],
+                    platform="ios",
+                    is_busy=owner is not None,
+                    active_pid=owner.pid if owner else None,
+                    active_task_desc=owner.description if owner else None,
+                    active_session_id=owner.session_id if owner else None,
+                    acquired_at=owner.acquired_at if owner else None,
+                )
+            )
+        return devices
 
     def _resolve_adb(self) -> str | None:
         if self._adb_path:

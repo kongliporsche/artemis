@@ -17,7 +17,7 @@
 import { Component, signal, computed, effect, inject, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { AgentService } from '../../services/agent.service';
+import { AgentService, TaskDevice } from '../../services/agent.service';
 import { SystemService } from '../../services/system.service';
 import {
   AdbServerConnectionResult,
@@ -345,6 +345,18 @@ export class HomeComponent implements OnInit, OnDestroy {
 
   // Computed helper states delegating to SystemService
   public isReady = computed(() => this.systemService.isReady());
+  public taskDevices = signal<TaskDevice[]>([]);
+  public taskDeviceError = signal<string | null>(null);
+  public selectedTaskSerial = signal('');
+  public canLaunchTask = computed(() => {
+    const serial = this.selectedTaskSerial();
+    if (!serial) return this.isReady();
+    const device = this.taskDevices().find(item => item.serial === serial);
+    if (!device || device.state !== 'device') return false;
+    return this.systemService.pythonProbe()?.status === 'pass'
+      && this.systemService.configProbe()?.status === 'pass'
+      && this.systemService.isCredentialsReady();
+  });
   public hasReadinessReport = computed(() => this.systemService.hasReadinessReport());
   public isLoading = computed(() => this.systemService.isLoading());
   public isRestartingAdb = computed(() => this.systemService.isRestartingAdb());
@@ -518,6 +530,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   private focusListener = () => {
     // Silently re-check environment when user returns to the browser tab
     this.systemService.fetchReadiness().subscribe();
+    if (this.activeTab() === 'launcher') this.refreshTaskDevices();
   };
 
   constructor() {
@@ -538,6 +551,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
 
     this.loadProTuningDefaults();
+    this.refreshTaskDevices();
     // Initial fetch of system readiness & model configuration
     this.systemService.fetchReadiness().subscribe();
     this.systemService.fetchModelConfigEnv().subscribe();
@@ -564,7 +578,19 @@ export class HomeComponent implements OnInit, OnDestroy {
     if (tab === 'diagnostics') {
       this.systemService.fetchReadiness().subscribe();
       this.systemService.fetchModelConfigEnv().subscribe();
+    } else {
+      this.refreshTaskDevices();
     }
+  }
+
+  public refreshTaskDevices(): void {
+    this.agentService.listTaskDevices().subscribe({
+      next: report => {
+        this.taskDevices.set(report.devices);
+        this.taskDeviceError.set(report.ios_error ?? null);
+      },
+      error: () => this.taskDeviceError.set('Could not refresh connected devices.')
+    });
   }
 
   public setSelectedOs(os: 'linux' | 'darwin' | 'windows'): void {
@@ -1063,7 +1089,7 @@ export class HomeComponent implements OnInit, OnDestroy {
 
 
   public proceedToLauncher(): void {
-    this.activeTab.set('launcher');
+    this.setTab('launcher');
   }
 
   public runTask(): void {
@@ -1073,9 +1099,8 @@ export class HomeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    if (!this.isReady()) {
+    if (!this.canLaunchTask()) {
       this.errorMessage.set('System prerequisites are not satisfied. Please review System Setup first.');
-      this.activeTab.set('diagnostics');
       return;
     }
 
@@ -1092,7 +1117,8 @@ export class HomeComponent implements OnInit, OnDestroy {
         this.selectedProfile() === 'pro' ? this.enableOutputter() : undefined,
         this.selectedProfile() === 'pro'
           ? { verificationLevel: this.verificationLevel().id, explorerMode: this.explorerMode().id }
-          : undefined
+          : undefined,
+        this.selectedTaskSerial() || undefined
       )
       .subscribe({
         next: () => {
@@ -1103,7 +1129,7 @@ export class HomeComponent implements OnInit, OnDestroy {
           console.error('Failed to submit task from home page:', err);
           this.isSubmitting.set(false);
           this.errorMessage.set(
-            err?.error?.detail || 'Failed to submit task. Please check server connection.'
+            err?.error?.detail || err?.message || 'Failed to submit task. Please check server connection.'
           );
         }
       });

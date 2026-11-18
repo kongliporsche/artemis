@@ -413,6 +413,11 @@ def format_minimal_list_with_elements(
             norm_bounds = normalize_bounds(left, top, right, bottom)
             kind = "Text" if text.strip() else "Hint"
             line = f"[{idx}] {kind}: '{shown}' | Bounds: {norm_bounds}"
+            is_ios_ax = str(node.get("class") or "").startswith("iOS")
+            if is_ios_ax and node.get("focused") is True:
+                line += " | Focused"
+            if is_ios_ax and node.get("enabled") is False:
+                line += " | Disabled"
             if error:
                 line += f" | Error: '{error}'"
             lines.append(line)
@@ -429,6 +434,9 @@ def format_minimal_list_with_elements(
             }
             if not text.strip():
                 element["is_hint"] = True
+            if is_ios_ax:
+                element["focused"] = node.get("focused") is True
+                element["enabled"] = node.get("enabled") is not False
             if error:
                 element["error"] = error
             elements.append(element)
