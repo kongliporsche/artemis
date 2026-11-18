@@ -316,7 +316,7 @@ printf '%s\n' '{"id":1,"method":"list"}' | go -C artemis/drivers/ios/helper run 
 
 通过 Python 驱动使用时，先运行 `go -C artemis/drivers/ios/helper build -o /tmp/artemis-ios .`，设置 `ARTEMIS_IOS_HELPER=/tmp/artemis-ios`，再以 `mobile_platform="ios"` 和上述设备 ID 构建 `DeviceContext`。当前驱动支持截图、启动 App、试验性单击、滑动和文本输入，不支持录屏。
 
-通过 Web 控制台使用时，在启动 Web 服务的环境中设置同一个 `ARTEMIS_IOS_HELPER`。在 **Task Launcher** 的 **Device** 列表中选择 **iOS USB**；刚接入设备时可点 **Refresh**。保持手机解锁、亮屏、竖持，并在目标中写明预装 App 的 Bundle ID，例如「打开 `com.apple.calculator`，计算 7 + 5 并报告结果」。工作区复用任务状态、停止按钮和步骤截图，不提供 iOS 直播、录屏、APK 安装或 App 锁定。设备列表的 **Ready** 仅代表开发者服务可用，提交任务时仍会检查锁屏状态。
+通过 Web 控制台使用时，打开 **System Setup & Prerequisites → iOS USB**，检查服务端 helper、USB 信任和开发者模式。若 helper 未配置，页面会提供构建和重启命令。刚接入设备时可点 **Refresh Devices**，设备就绪后点 **Use this iPhone** 进入 Launcher，也可直接从 Launcher 的 **Device** 列表选择设备。iOS 不需要 ADB 或视频工具链。保持手机解锁、亮屏、竖持，并在目标中写明预装 App 的 Bundle ID，例如「打开 `com.apple.calculator`，计算 7 + 5 并报告结果」。工作区复用任务状态、停止按钮和步骤截图，不提供 iOS 直播、录屏、APK 安装或 App 锁定。列表中的就绪状态仅代表开发者服务可用，提交任务时仍会检查锁屏状态。
 - [ ] **端侧轻量化模型**：支持离线运行的轻量级 Edge VLM，实现低延迟与隐私安全的本地自动化。
 - [ ] **实时语音双工交互**：支持自然语音下发任务与实时打断（Barge-in）控制。
 

@@ -211,7 +211,8 @@ async def get_run_defaults():
 
 @router.get("/api/devices")
 async def list_devices():
-    """List Android devices and optional local USB iPhones."""
+    """List devices and explain whether this server supports iOS USB discovery."""
+    ios_usb_support = device_pool.ios_usb_support()
     devices, ios_devices = await asyncio.gather(
         device_pool.list_devices_async(),
         device_pool.list_ios_devices_async(),
@@ -220,10 +221,17 @@ async def list_devices():
     if isinstance(devices, BaseException):
         raise devices
     if isinstance(ios_devices, (OSError, RuntimeError, ValueError, TimeoutError)):
-        return {"devices": [d.to_dict() for d in devices], "ios_error": str(ios_devices)}
+        return {
+            "devices": [d.to_dict() for d in devices],
+            "ios_usb_support": ios_usb_support,
+            "ios_error": str(ios_devices),
+        }
     if isinstance(ios_devices, BaseException):
         raise ios_devices
-    return {"devices": [d.to_dict() for d in devices + ios_devices]}
+    return {
+        "devices": [d.to_dict() for d in devices + ios_devices],
+        "ios_usb_support": ios_usb_support,
+    }
 
 
 @router.post("/api/stop")

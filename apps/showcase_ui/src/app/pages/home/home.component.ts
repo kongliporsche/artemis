@@ -17,7 +17,7 @@
 import { Component, signal, computed, effect, inject, OnInit, OnDestroy, ChangeDetectionStrategy } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { AgentService, TaskDevice } from '../../services/agent.service';
+import { AgentService, TaskDevice, TaskDeviceReport } from '../../services/agent.service';
 import { SystemService } from '../../services/system.service';
 import {
   AdbServerConnectionResult,
@@ -346,19 +346,30 @@ export class HomeComponent implements OnInit, OnDestroy {
   });
 
   // Computed helper states delegating to SystemService
-  public isReady = computed(() => this.systemService.isReady());
+  public setupPlatform = signal<'android' | 'ios'>('android');
   public taskDevices = signal<TaskDevice[]>([]);
   public taskDeviceError = signal<string | null>(null);
+  public iosUsbSupport = signal<TaskDeviceReport['ios_usb_support']>(undefined);
+  public isRefreshingDevices = signal(false);
+  public iosDevices = computed(() => this.taskDevices().filter(device => device.platform === 'ios'));
+  public isIosDeviceReady = computed(() => this.iosDevices().some(device => device.state === 'device'));
+  public readonly iosHelperCommands = [
+    'mkdir -p "$HOME/.local/bin" && go -C artemis/drivers/ios/helper build -o "$HOME/.local/bin/artemis-ios" .',
+    'ARTEMIS_IOS_HELPER="$HOME/.local/bin/artemis-ios" uv run artemis restart'
+  ];
   public selectedTaskSerial = signal('');
+  private isCoreReady = computed(() => this.pythonProbe()?.status === 'pass' && this.configProbe()?.status === 'pass');
+  public isSetupReady = computed(() => this.setupPlatform() === 'ios'
+    ? this.isCoreReady() && this.isCredentialsReady() && this.isIosDeviceReady()
+    : this.systemService.isReady());
   public canLaunchTask = computed(() => {
     const serial = this.selectedTaskSerial();
-    if (!serial) return this.isReady();
+    if (!serial) return this.systemService.isReady();
     const device = this.taskDevices().find(item => item.serial === serial);
     if (!device || device.state !== 'device') return false;
-    return this.systemService.pythonProbe()?.status === 'pass'
-      && this.systemService.configProbe()?.status === 'pass'
-      && this.systemService.isCredentialsReady();
+    return this.isCoreReady() && this.isCredentialsReady();
   });
+  public isReady = computed(() => this.activeTab() === 'diagnostics' ? this.isSetupReady() : this.canLaunchTask());
   public hasReadinessReport = computed(() => this.systemService.hasReadinessReport());
   public isLoading = computed(() => this.systemService.isLoading());
   public isRestartingAdb = computed(() => this.systemService.isRestartingAdb());
@@ -377,7 +388,8 @@ export class HomeComponent implements OnInit, OnDestroy {
   public toolchainProbe = computed(() => this.systemService.toolchainProbe());
 
   // Step-level readiness
-  public isEnvironmentReady = computed(() => this.systemService.isEnvironmentReady());
+  public isEnvironmentReady = computed(() => this.setupPlatform() === 'ios'
+    ? this.isCoreReady() : this.systemService.isEnvironmentReady());
   public isCredentialsReady = computed(() => this.systemService.isCredentialsReady());
   public isSkipCredentialsCheck = computed(() => this.systemService.isSkipCredentialsCheck());
   public isDeviceReady = computed(() => this.systemService.isDeviceReady());
@@ -532,7 +544,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   private focusListener = () => {
     // Silently re-check environment when user returns to the browser tab
     this.systemService.fetchReadiness().subscribe();
-    if (this.activeTab() === 'launcher') this.refreshTaskDevices();
+    if (this.activeTab() === 'launcher' || this.setupPlatform() === 'ios') this.refreshTaskDevices();
   };
 
   constructor() {
@@ -581,20 +593,55 @@ export class HomeComponent implements OnInit, OnDestroy {
   public setTab(tab: 'diagnostics' | 'launcher'): void {
     this.activeTab.set(tab);
     if (tab === 'diagnostics') {
+      if (this.selectedTaskSerial().startsWith('ios:')) this.setupPlatform.set('ios');
       this.systemService.fetchReadiness().subscribe();
       this.systemService.fetchModelConfigEnv().subscribe();
-    } else {
-      this.refreshTaskDevices();
+    }
+    if (tab === 'launcher' || this.setupPlatform() === 'ios') this.refreshTaskDevices();
+  }
+
+  public selectSetupPlatform(platform: 'android' | 'ios'): void {
+    this.setupPlatform.set(platform);
+    if (platform === 'ios') this.refreshTaskDevices();
+  }
+
+  public openIosSetup(): void {
+    this.setupPlatform.set('ios');
+    this.setTab('diagnostics');
+  }
+
+  public launchFromSetup(serial?: string): void {
+    if (serial) this.selectedTaskSerial.set(serial);
+    else if (this.selectedTaskSerial().startsWith('ios:')) this.selectedTaskSerial.set('');
+    this.setTab('launcher');
+  }
+
+  public iosDeviceStatus(device: TaskDevice): string {
+    switch (device.state) {
+      case 'device': return device.is_busy ? 'Busy' : 'Developer services ready';
+      case 'trust_required': return 'Unlock the iPhone and tap Trust This Computer.';
+      case 'developer_mode_required': return 'Enable Developer Mode in Settings → Privacy & Security, then restart the iPhone.';
+      case 'developer_services_unavailable': return 'Open Xcode → Devices and Simulators and wait for device preparation.';
+      default: return 'Could not verify developer readiness. Unlock and reconnect the iPhone, then refresh.';
     }
   }
 
   public refreshTaskDevices(): void {
+    if (this.isRefreshingDevices()) return;
+    this.isRefreshingDevices.set(true);
     this.agentService.listTaskDevices().subscribe({
       next: report => {
         this.taskDevices.set(report.devices);
+        this.iosUsbSupport.set(report.ios_usb_support);
         this.taskDeviceError.set(report.ios_error ?? null);
+        this.isRefreshingDevices.set(false);
       },
-      error: () => this.taskDeviceError.set('Could not refresh connected devices.')
+      error: () => {
+        this.taskDevices.set([]);
+        this.iosUsbSupport.set(undefined);
+        this.taskDeviceError.set('Could not refresh connected devices.');
+        this.isRefreshingDevices.set(false);
+      }
     });
   }
 
@@ -864,6 +911,7 @@ export class HomeComponent implements OnInit, OnDestroy {
   }
 
   public refreshReadiness(): void {
+    if (this.setupPlatform() === 'ios') this.refreshTaskDevices();
     this.isRefreshingDiagnostics.set(true);
     this.systemService.fetchReadiness(false, true).subscribe({
       next: () => {

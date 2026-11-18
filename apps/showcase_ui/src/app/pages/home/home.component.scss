@@ -522,6 +522,47 @@ $text-light: #94a3b8;
       gap: 16px;
       animation: fadeIn 0.2s ease-out;
 
+      .setup-platform-picker,
+      .ios-setup-body .device-hero-card {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+
+        button {
+          padding: 6px 12px;
+          border: 1px solid $card-border;
+          border-radius: 8px;
+          background: $card-bg;
+          color: #334155;
+          font: inherit;
+          font-weight: 600;
+          cursor: pointer;
+
+          &[aria-pressed='true'], &:hover:not(:disabled) {
+            background: #e0f2fe;
+            border-color: #7dd3fc;
+            color: #075985;
+          }
+
+          &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+          }
+        }
+      }
+
+      .ios-setup-body {
+        .device-hero-card + .device-hero-card,
+        .code-box + .code-box {
+          margin-top: 8px;
+        }
+
+        .code-text {
+          overflow-wrap: anywhere;
+          white-space: normal;
+        }
+      }
+
       /* Unified Step Card Container */
       .guide-card {
         background: $card-bg;

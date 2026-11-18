@@ -24,7 +24,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any
+from typing import Any, Literal
 
 from artemis.drivers.ios.ios_driver import IOS_SERIAL_PREFIX, IOSDeviceDriver
 from artemis.runtime.adb_endpoint import AdbEndpoint
@@ -93,12 +93,18 @@ class DevicePool:
         self._sync_query_gate = threading.Lock()
         self._async_inflight: tuple[asyncio.AbstractEventLoop, asyncio.Task] | None = None
 
+    @staticmethod
+    def ios_usb_support() -> Literal["unsupported_host", "cloud_mode", "helper_missing", "available"]:
+        if os.environ.get("ARTEMIS_CLOUD_MODE") == "1":
+            return "cloud_mode"
+        if sys.platform != "darwin":
+            return "unsupported_host"
+        if not shutil.which(os.environ.get("ARTEMIS_IOS_HELPER", "artemis-ios")):
+            return "helper_missing"
+        return "available"
+
     async def list_ios_devices_async(self) -> list[DeviceStatus]:
-        if (
-            sys.platform != "darwin"
-            or os.environ.get("ARTEMIS_CLOUD_MODE") == "1"
-            or not shutil.which(os.environ.get("ARTEMIS_IOS_HELPER", "artemis-ios"))
-        ):
+        if self.ios_usb_support() != "available":
             return []
         found = await IOSDeviceDriver.list_devices()
         owners = DeviceExecutionLock.get_active_owners()
