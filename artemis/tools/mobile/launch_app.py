@@ -75,7 +75,13 @@ class LaunchAppTool(ArtemisTool):
             if not app:
                 raise ValueError("app_name parameter is required.")
 
-            if ctx is not None:
+            if ctx is not None and ctx.device.mobile_platform == "ios":
+                from artemis.drivers.factory import get_driver
+
+                success = await get_driver(ctx).launch_app(app)
+                outcome = f"Launched '{app}'. Verify it visually." if success else f"Could not launch '{app}'."
+                error_msg = None if success else "Launch failed."
+            elif ctx is not None:
                 package_name = await find_package(ctx=ctx, app_name=app)
                 if not package_name:
                     success = False

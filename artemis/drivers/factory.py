@@ -22,6 +22,7 @@ from adbutils import AdbClient
 from artemis.config import settings
 from artemis.drivers.android.adb_driver import AndroidAdbDriver
 from artemis.drivers.base import BaseDeviceDriver
+from artemis.drivers.ios.ios_driver import IOSDeviceDriver
 from artemis.drivers.mock.mock_driver import MockDeviceDriver
 from third_party.mobile_use.utils.logger import get_logger
 
@@ -33,6 +34,13 @@ logger = get_logger(__name__)
 
 def create_driver(ctx: "ArtemisContext") -> BaseDeviceDriver:
     """Instantiates the appropriate BaseDeviceDriver based on the runtime context."""
+    if getattr(ctx.device, "mobile_platform", None) == "ios":
+        return IOSDeviceDriver(
+            device_id=ctx.device.device_id,
+            width=ctx.device.device_width,
+            height=ctx.device.device_height,
+        )
+
     # 1. Cloud mode check. Cloud devices are reached through the gateway's
     # RemoteUIAutomatorClient; ARTEMIS_HIERARCHY_BACKEND does not apply there
     # because the Accessibility Helper needs a local adb forward.

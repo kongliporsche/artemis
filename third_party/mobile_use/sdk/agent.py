@@ -139,7 +139,11 @@ class AgentBase:
         retry_wait_seconds: int = 5,
     ):
 
-        if os.environ.get("ARTEMIS_CLOUD_MODE") != "1" and not which("adb"):
+        if (
+            self._config.device_platform != DevicePlatform.IOS
+            and os.environ.get("ARTEMIS_CLOUD_MODE") != "1"
+            and not which("adb")
+        ):
             raise ExecutableNotFoundError("adb")
 
         if self._initialized:
@@ -164,10 +168,14 @@ class AgentBase:
             raise DeviceNotFoundError(error_msg)
 
         # Initialize clients
+        device_label = "USB iPhone" if platform == DevicePlatform.IOS else "Android device"
         publish_startup_progress(
-            "device_check", "Checking the Android device", session_id=self._session_id
+            "device_check", f"Checking the {device_label}", session_id=self._session_id
         )
-        if os.environ.get("ARTEMIS_CLOUD_MODE") != "1":
+        if platform == DevicePlatform.IOS:
+            self._adb_client = None
+            self._ui_adb_client = None
+        elif os.environ.get("ARTEMIS_CLOUD_MODE") != "1":
             self._init_clients(
                 device_id=device_id,
                 platform=platform,
@@ -188,7 +196,7 @@ class AgentBase:
         )
         logger.info(self._device_context.to_str())
         publish_startup_progress(
-            "device_ready", "Android device connected", session_id=self._session_id
+            "device_ready", f"{device_label} connected", session_id=self._session_id
         )
 
         # Asynchronously pre-warm LLM connection pools in the background
@@ -518,7 +526,21 @@ class AgentBase:
                 # finishing.
                 self._prepare_tracing(task=task, context=context)
                 self._prepare_output_files(task=task)
-                if os.environ.get("ARTEMIS_CLOUD_MODE") != "1":
+                is_ios = context.device.mobile_platform == DevicePlatform.IOS
+                if is_ios:
+                    from artemis.drivers.factory import get_driver
+                    from artemis.drivers.ios.ios_driver import IOSDeviceDriver
+                    from artemis.mcp.actuators.adb import AdbActuator
+
+                    driver = get_driver(context)
+                    if not isinstance(driver, IOSDeviceDriver):
+                        raise RuntimeError("The selected USB iPhone requires the iOS driver")
+                    await driver.check_input()
+                    shot = await driver.get_screen_data()
+                    context.device.device_width = shot.width
+                    context.device.device_height = shot.height
+                    context.actuator = AdbActuator(context)
+                elif os.environ.get("ARTEMIS_CLOUD_MODE") != "1":
                     if self._ui_adb_client is not None:
                         await self._connect_screen_client(context, str(sess_id))
                     await self._ensure_device_unlocked()
@@ -526,11 +548,12 @@ class AgentBase:
                     "environment", "Preparing the device environment", session_id=str(sess_id)
                 )
                 await self._prepare_app_installation(task=task)
-                await self._prepare_device_environment(context=context)
+                if not is_ios:
+                    await self._prepare_device_environment(context=context)
                 await self._prepare_app_lock(task=task, context=context)
                 async with context:
                     recording_started = False
-                    if self._config.video_recording_tools_enabled:
+                    if self._config.video_recording_tools_enabled and not is_ios:
                         try:
                             controller = get_controller(context)
 
@@ -1005,6 +1028,17 @@ class AgentBase:
     ) -> DeviceContext:
 
         host_platform = system()
+        if platform == DevicePlatform.IOS:
+            from artemis.drivers.ios.ios_driver import IOSDeviceDriver
+
+            await IOSDeviceDriver(device_id, 0, 0).connect()
+            return DeviceContext(
+                host_platform=host_platform.upper(),
+                mobile_platform=platform,
+                device_id=device_id,
+                device_width=0,
+                device_height=0,
+            )
         if os.environ.get("ARTEMIS_CLOUD_MODE") == "1":
             width, height = (1080, 2400)
             if self._adb_client:

@@ -54,6 +54,14 @@ export interface StartupProgressEvent {
   timestamp: number;
 }
 
+export interface TaskDevice {
+  serial: string;
+  platform: 'android' | 'ios';
+  state: string;
+  model: string | null;
+  is_busy: boolean;
+}
+
 interface SessionVideoResponse {
   session_id: string;
   status?: 'processing' | 'ready' | 'failed' | 'unavailable';
@@ -415,12 +423,17 @@ export class AgentService {
   /**
    * Run a new task by submitting to backend queue
    */
+  public listTaskDevices(): Observable<{ devices: TaskDevice[]; ios_error?: string }> {
+    return this.http.get<{ devices: TaskDevice[]; ios_error?: string }>('/api/devices');
+  }
+
   public runTask(
     goal: string,
     profile: string = 'flash',
     expectedOutput?: string,
     enableOutputter?: boolean,
-    proTuning?: ProTuningOptions
+    proTuning?: ProTuningOptions,
+    deviceSerial?: string
   ): Observable<any> {
     return new Observable((obs) => {
       const submittedEvent: StartupProgressEvent = {
@@ -430,6 +443,9 @@ export class AgentService {
       };
       this.pendingStartupProgress.set([submittedEvent]);
       const payload: any = { goal, profile };
+      if (deviceSerial) {
+        payload.device_serial = deviceSerial;
+      }
       if (expectedOutput && expectedOutput.trim()) {
         payload.expected_output = expectedOutput.trim();
       }
@@ -445,6 +461,11 @@ export class AgentService {
       this.clearUserPinnedSession();
       this.http.post<any>('/api/run', payload).subscribe({
         next: (res) => {
+          if (res?.status === 'rejected') {
+            this.pendingStartupProgress.set([]);
+            obs.error(new Error(res.error || 'The selected device is unavailable.'));
+            return;
+          }
           if (res && res.tasks && res.tasks.length > 0) {
             const newSessionId = res.tasks[0].session_id;
             if (newSessionId) {
@@ -1802,6 +1823,14 @@ export class AgentService {
     if (!targetSessionId) {
       this.activeVideoUrl.set(null);
       this.isVideoLoading.set(false);
+      this.recordingPlaybackStatus.set('unavailable');
+      return;
+    }
+
+    if ((session?.device_serial || session?.device_id)?.startsWith('ios:')) {
+      this.activeVideoUrl.set(null);
+      this.isVideoLoading.set(false);
+      this.playerMode.set('steps');
       this.recordingPlaybackStatus.set('unavailable');
       return;
     }

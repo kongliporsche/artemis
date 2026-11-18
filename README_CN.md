@@ -299,6 +299,24 @@ ARTEMIS 提供两种运行模式以适应不同的自动化需求：
 
 - [ ] **Android Studio 深度集成**：推出官方 IDE 插件与协同工作流，支持在 Android Studio 内直接进行自动化测试、设备交互与断点调试。
 - [ ] **iOS 跨平台支持**：将视觉感知与自动化执行引擎拓展至 iOS 真机与模拟器。
+
+**iOS 真机驱动（开发预览）**：在装有兼容 Xcode 的 Mac 上，将 iOS 27+ iPhone 通过 USB 接入，信任该 Mac 并开启开发者模式。从仓库根目录运行：
+
+```bash
+printf '%s\n' '{"id":1,"method":"list"}' | go -C artemis/drivers/ios/helper run .
+```
+
+拿到状态为 `ready` 的设备 ID 后，可发送 `{"id":2,"method":"screenshot","device":"<设备 ID>"}` 获取 Base64 PNG 和像素尺寸，或发送 `{"id":3,"method":"launch","device":"<设备 ID>","bundle_id":"com.example.TestApp"}` 启动已安装的测试 App。试验性的 `{"id":4,"method":"tap","device":"<设备 ID>","x":100,"y":200}` 接收截图像素坐标，要求手机已解锁、亮屏并竖持。若触控结果不确定，先截图确认再决定是否重试。每行一条请求和响应。此预览需要 Go 1.26 或更新版本，不需要 Pinky 或手机端辅助 App。
+
+试验性滑动请求：`{"id":5,"method":"swipe","device":"<设备 ID>","x":590,"y":1900,"end_x":590,"end_y":650,"duration_ms":800}`。坐标使用截图像素；时长可省略，范围为 50–3000 毫秒。
+
+试验性文本输入：先聚焦测试 App 的输入框，再发送 `{"id":6,"method":"type","device":"<设备 ID>","text":"Artemis 27","clear_existing":true}`。支持最多 128 个可打印 ASCII 字符，要求使用美式硬件键盘布局；`clear_existing` 会先发送全选和删除。不使用剪贴板，也不会按下回车提交。
+
+**无障碍读取（实验性）**：发送 `{"id":7,"method":"accessibility","device":"<设备 ID>"}` 可通过 USB 直接读取 iOS 前台界面的可见控件标签、边界及设备提供的焦点状态，无需截图、OCR 或手机端辅助 App。它要求手机已解锁、亮屏且竖持，不返回文本框的可编辑值。重建 helper 后，在启动 Artemis 或 Web 服务前设置 `ARTEMIS_IOS_ACCESSIBILITY=1`，任务有可用的无障碍元素时优先使用它们；如果服务不可用，继续使用原有截图路径。步骤截图照常保留。
+
+通过 Python 驱动使用时，先运行 `go -C artemis/drivers/ios/helper build -o /tmp/artemis-ios .`，设置 `ARTEMIS_IOS_HELPER=/tmp/artemis-ios`，再以 `mobile_platform="ios"` 和上述设备 ID 构建 `DeviceContext`。当前驱动支持截图、启动 App、试验性单击、滑动和文本输入，不支持录屏。
+
+通过 Web 控制台使用时，在启动 Web 服务的环境中设置同一个 `ARTEMIS_IOS_HELPER`。在 **Task Launcher** 的 **Device** 列表中选择 **iOS USB**；刚接入设备时可点 **Refresh**。保持手机解锁、亮屏、竖持，并在目标中写明预装 App 的 Bundle ID，例如「打开 `com.apple.calculator`，计算 7 + 5 并报告结果」。工作区复用任务状态、停止按钮和步骤截图，不提供 iOS 直播、录屏、APK 安装或 App 锁定。设备列表的 **Ready** 仅代表开发者服务可用，提交任务时仍会检查锁屏状态。
 - [ ] **端侧轻量化模型**：支持离线运行的轻量级 Edge VLM，实现低延迟与隐私安全的本地自动化。
 - [ ] **实时语音双工交互**：支持自然语音下发任务与实时打断（Barge-in）控制。
 

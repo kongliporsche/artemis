@@ -99,7 +99,7 @@ async def ensure_focus_at_coords(controller, x: int, y: int) -> str | None:
 
 
 class AdbActuator:
-    """Drives an Android device through ``UnifiedMobileController`` over ADB."""
+    """Runs mobile actions through the controller for the selected device."""
 
     def __init__(
         self,
@@ -112,6 +112,15 @@ class AdbActuator:
     # --- Contract --------------------------------------------------------------------
 
     def capabilities(self) -> frozenset[str]:
+        if getattr(self.ctx.device, "mobile_platform", None) == "ios":
+            return DEVICE_ACTIONS - {
+                "long_press",
+                "press_key",
+                "open_link",
+                "wait_for_text",
+                "erase_one_char",
+                "focus_and_clear_text",
+            }
         return DEVICE_ACTIONS
 
     def extensions(self) -> list[ExtensionTool]:
@@ -192,6 +201,18 @@ class AdbActuator:
         target: tuple[int, int] | None = None,
         clear_exist: bool = True,
     ) -> ActionResult:
+        if self.ctx.device.mobile_platform == "ios":
+            coords = list(target) if target is not None else None
+            if target is not None:
+                focus = await self.click(*target)
+                if not focus.ok:
+                    return ActionResult.failure("input_text", "Could not tap the input field.")
+            if not await self.controller.type_text(text, clear_existing=clear_exist):
+                return ActionResult.failure("input_text", "iOS keyboard input failed.")
+            return ActionResult.success(
+                "input_text", "Sent text to the focused iOS field. Verify it visually.",
+                normalized_coordinates=coords,
+            )
         coords = None
         if target:
             nx, ny = target
@@ -284,6 +305,12 @@ class AdbActuator:
         return ActionResult.success("press_key", f"Pressed key '{key}'.")
 
     async def manage_app(self, action: str, app_name: str) -> ActionResult:
+        if self.ctx.device.mobile_platform == "ios":
+            if action.lower() != "launch":
+                return ActionResult.failure("manage_app", "iOS only supports launching apps.")
+            if not await self.controller.launch_app(app_name):
+                return ActionResult.failure("manage_app", f"Could not launch '{app_name}'.")
+            return ActionResult.success("manage_app", f"Launched '{app_name}'. Verify it visually.")
         # Imported lazily: launch_app pulls in tool wrappers that are costly at import.
         from artemis.tools.mobile.launch_app import find_package
         from third_party.mobile_use.utils.app_launch_utils import launch_app_with_retries
@@ -408,6 +435,13 @@ class AdbActuator:
         return await self.controller.take_screenshot()
 
     async def get_ui_elements(self) -> Any:
+        if self.ctx.device.mobile_platform == "ios":
+            from artemis.drivers.ios.ios_driver import IOSDeviceDriver
+
+            driver = self.controller.driver
+            if not isinstance(driver, IOSDeviceDriver) or not driver.accessibility_enabled:
+                return []
+            return await driver.get_accessibility_elements()
         return await self.controller.get_ui_elements()
 
     async def get_screen_data(self) -> Any:

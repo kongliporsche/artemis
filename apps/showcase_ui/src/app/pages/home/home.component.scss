@@ -3838,6 +3838,24 @@ $text-light: #94a3b8;
           box-shadow: 0 24px 60px -12px rgba(99, 102, 241, 0.16), 0 1px 3px rgba(0, 0, 0, 0.02), inset 0 1px 1px rgba(255, 255, 255, 0.95);
         }
 
+        .composer-device-picker {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 12px;
+          font-size: 13px;
+
+          select {
+            max-width: 100%;
+          }
+
+          small {
+            flex-basis: 100%;
+            color: #475569;
+          }
+        }
+
         .intent-suggestion-strip {
           display: flex;
           align-items: center;

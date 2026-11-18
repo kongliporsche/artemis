@@ -19,6 +19,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from artemis.core.diagnostics import readiness_engine
+from artemis.drivers.ios.ios_driver import IOS_SERIAL_PREFIX
 from artemis.runtime import DeviceExecutionLock, device_pool
 
 try:
@@ -119,7 +120,14 @@ async def run_task(request: RunRequest):
     # never be selected. Only a successful, non-empty enumeration may reject:
     # an indeterminate one (adb blip, startup) lets the submission queue and
     # fail downstream with a clear error instead.
-    if request.device_serial:
+    is_ios = (request.device_serial or "").startswith(IOS_SERIAL_PREFIX)
+    if is_ios and (request.app_path or request.locked_app_package):
+        raise HTTPException(
+            status_code=400,
+            detail="Use a preinstalled iOS app and specify its bundle ID in the task goal. "
+            "APK installation and app locking are Android-only.",
+        )
+    if request.device_serial and not is_ios:
         try:
             rejection = await device_pool.validate_explicit_serial_async(request.device_serial)
         except Exception:
@@ -141,7 +149,11 @@ async def run_task(request: RunRequest):
     # prefers the diagnostics target preference, then any unlocked ready
     # device); the verified serial is bound below.
     target_serial = request.device_serial
-    device_probe = await readiness_engine.run_device_submission_probe(target_serial=target_serial)
+    device_probe = (
+        None
+        if is_ios
+        else await readiness_engine.run_device_submission_probe(target_serial=target_serial)
+    )
     if device_probe and device_probe.summary in {"Device Locked", "Lock State Unknown"}:
         locked_serial = (
             device_probe.metadata.get("active_device", {}).get("serial") or target_serial or ""
@@ -199,9 +211,19 @@ async def get_run_defaults():
 
 @router.get("/api/devices")
 async def list_devices():
-    """List all connected Android devices with their busy / idle status."""
-    devices = await device_pool.list_devices_async()
-    return {"devices": [d.to_dict() for d in devices]}
+    """List Android devices and optional local USB iPhones."""
+    devices, ios_devices = await asyncio.gather(
+        device_pool.list_devices_async(),
+        device_pool.list_ios_devices_async(),
+        return_exceptions=True,
+    )
+    if isinstance(devices, BaseException):
+        raise devices
+    if isinstance(ios_devices, (OSError, RuntimeError, ValueError, TimeoutError)):
+        return {"devices": [d.to_dict() for d in devices], "ios_error": str(ios_devices)}
+    if isinstance(ios_devices, BaseException):
+        raise ios_devices
+    return {"devices": [d.to_dict() for d in devices + ios_devices]}
 
 
 @router.post("/api/stop")

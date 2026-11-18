@@ -41,6 +41,7 @@ from artemis.config import (
     TEST_OUTPUTS_DIR,
     WORKSPACE_ROOT,
 )
+from artemis.drivers.ios.ios_driver import IOS_SERIAL_PREFIX, IOSDeviceDriver
 from artemis.runtime import (
     AdbEndpoint,
     AdbTarget,
@@ -217,13 +218,15 @@ class TaskQueueService:
 
     @staticmethod
     def _task_target(task_item: dict[str, Any]) -> AdbTarget:
+        serial = task_item.get("device_serial")
+        if serial and str(serial).startswith(IOS_SERIAL_PREFIX):
+            return AdbTarget(endpoint=AdbEndpoint.local(), serial=str(serial))
         endpoint_data = task_item.get("adb_endpoint")
         endpoint = (
             AdbEndpoint.from_mapping(endpoint_data)
             if isinstance(endpoint_data, dict)
             else current_adb_endpoint()
         )
-        serial = task_item.get("device_serial")
         return AdbTarget(endpoint=endpoint, serial=str(serial) if serial else None)
 
     @classmethod
@@ -558,7 +561,8 @@ class TaskQueueService:
         device_serial = task_item.get("device_serial")
         if device_serial:
             cmd.extend(["--device-serial", str(device_serial)])
-            env["ADB_DEVICE_SERIAL"] = str(device_serial)
+            if not str(device_serial).startswith(IOS_SERIAL_PREFIX):
+                env["ADB_DEVICE_SERIAL"] = str(device_serial)
         return cmd, env
 
     @classmethod
@@ -947,7 +951,11 @@ class TaskQueueService:
                     if isinstance(item, dict)
                     and item.get("status") == "pending"
                     and item.get("goal") == first_goal
-                    and (not device_serial or item.get("device_serial") == device_serial)
+                    and (
+                        item.get("device_serial") == device_serial
+                        if device_serial
+                        else not str(item.get("device_serial") or "").startswith(IOS_SERIAL_PREFIX)
+                    )
                     and item.get("adb_endpoint", {}).get("identity") == endpoint.identity
                     and (now - float(item.get("created_at", 0))) < 1.0
                 ),
@@ -973,9 +981,18 @@ class TaskQueueService:
             try:
                 from artemis.runtime import device_pool
 
-                rejection = await device_pool.validate_explicit_serial_async(device_serial)
-            except Exception:
-                rejection = None
+                if device_serial.startswith(IOS_SERIAL_PREFIX):
+                    devices = await device_pool.list_ios_devices_async()
+                    selected = next((d for d in devices if d.serial == device_serial), None)
+                    if selected is None or selected.state != "device":
+                        rejection = "Selected USB iPhone is not connected or not ready."
+                    else:
+                        await IOSDeviceDriver(device_serial, 0, 0).check_input()
+                        rejection = None
+                else:
+                    rejection = await device_pool.validate_explicit_serial_async(device_serial)
+            except Exception as exc:
+                rejection = str(exc) if device_serial.startswith(IOS_SERIAL_PREFIX) else None
             if rejection:
                 return {
                     "status": "rejected",
@@ -1067,7 +1084,7 @@ class TaskQueueService:
 
         enqueued_tasks = []
         now = time.time()
-        endpoint = current_adb_endpoint()
+        endpoint = cls._task_target({"device_serial": device_serial}).endpoint
 
         duplicate_response = cls._find_duplicate_submission(
             goals, session_id, device_serial, endpoint, now
