@@ -59,7 +59,14 @@ export interface TaskDevice {
   platform: 'android' | 'ios';
   state: string;
   model: string | null;
+  product?: string | null;
   is_busy: boolean;
+}
+
+export interface TaskDeviceReport {
+  devices: TaskDevice[];
+  ios_usb_support?: 'available' | 'unsupported_host' | 'cloud_mode' | 'helper_missing';
+  ios_error?: string;
 }
 
 interface SessionVideoResponse {
@@ -423,8 +430,8 @@ export class AgentService {
   /**
    * Run a new task by submitting to backend queue
    */
-  public listTaskDevices(): Observable<{ devices: TaskDevice[]; ios_error?: string }> {
-    return this.http.get<{ devices: TaskDevice[]; ios_error?: string }>('/api/devices');
+  public listTaskDevices(): Observable<TaskDeviceReport> {
+    return this.http.get<TaskDeviceReport>('/api/devices');
   }
 
   public runTask(

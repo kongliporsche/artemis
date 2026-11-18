@@ -74,6 +74,14 @@
     <!-- ========================================================================= -->
     @if (activeTab() === 'diagnostics') {
       <section class="setup-guide-view">
+        <div class="setup-platform-picker" role="group" aria-label="Device platform">
+          <button type="button" [attr.aria-pressed]="setupPlatform() === 'android'" (click)="selectSetupPlatform('android')">
+            Android
+          </button>
+          <button type="button" [attr.aria-pressed]="setupPlatform() === 'ios'" (click)="selectSetupPlatform('ios')">
+            iOS USB
+          </button>
+        </div>
 
 <!-- =================================================================== -->
 <!-- STEP 1: ENVIRONMENT & SYSTEM DEPENDENCIES (FIRST & FOUNDATIONAL)    -->
@@ -92,7 +100,7 @@
       <div class="step-title-row">
         <h3 class="step-title">System & Environment</h3>
       </div>
-      <p class="step-desc">Core tools, Android debug bridge, and video recording runtime</p>
+      <p class="step-desc">{{ setupPlatform() === 'ios' ? 'Python runtime and Artemis configuration' : 'Core tools, Android debug bridge, and video recording runtime' }}</p>
     </div>
 
     <button
@@ -109,7 +117,7 @@
 
   <div class="guide-card-body">
     <!-- One-Click Dependency Installer Bar when any env dep is missing -->
-    @if (hasReadinessReport() && !isEnvironmentReady()) {
+    @if (setupPlatform() === 'android' && hasReadinessReport() && !isEnvironmentReady()) {
     <div class="one-click-install-bar">
       <div class="install-bar-left">
         <div class="install-bar-icon-box">
@@ -179,6 +187,7 @@
       </div>
 
       <!-- 2. Android ADB Platform-Tools Card -->
+      @if (setupPlatform() === 'android') {
       <div class="env-item-card" [class.item-pass]="adbProbe()?.metadata?.['installed']"
         [class.item-fail]="adbProbe()?.status === 'fail'">
         <div class="item-header">
@@ -210,6 +219,7 @@
         </div>
         }
       </div>
+      }
 
       <!-- 3. System Configuration Card -->
       <div class="env-item-card" [class.item-pass]="configProbe()?.status === 'pass'"
@@ -245,6 +255,7 @@
       </div>
 
       <!-- 4. Video Recording Toolchain Card (FFmpeg & scrcpy) -->
+      @if (setupPlatform() === 'android') {
       <div class="env-item-card" [class.item-pass]="toolchainProbe()?.status === 'pass'"
         [class.item-fail]="toolchainProbe()?.status !== 'pass'">
         <div class="item-header">
@@ -276,7 +287,7 @@
         </div>
         }
       </div>
-
+      }
     </div>
   </div>
 </div>
@@ -660,6 +671,7 @@
         <!-- =================================================================== -->
         <!-- STEP 3: ANDROID DEVICE & EMULATOR CONNECTION                        -->
         <!-- =================================================================== -->
+        @if (setupPlatform() === 'android') {
         <div class="guide-card" [class.card-pass]="isDeviceReady()" [class.card-warn]="!isDeviceReady()">
           
           <div class="guide-card-header">
@@ -1677,8 +1689,81 @@
           </div>
         </div>
 
+        } @else {
+          <div class="guide-card" [class.card-pass]="isIosDeviceReady()" [class.card-warn]="!isIosDeviceReady()">
+            <div class="guide-card-header">
+              <div class="step-badge" [class.step-pass]="isIosDeviceReady()">
+                @if (isIosDeviceReady()) {
+                  <span class="material-symbols-outlined step-check-icon">check</span>
+                } @else { <span>3</span> }
+              </div>
+              <div class="step-info">
+                <h3 class="step-title">iOS USB Device Connection</h3>
+                <p class="step-desc">Connect an iPhone running iOS 27 or later to the Mac running Artemis.</p>
+              </div>
+              <button type="button" class="btn-header-action" [disabled]="isRefreshingDevices()" (click)="refreshTaskDevices()">
+                <span class="material-symbols-outlined" [class.spinning]="isRefreshingDevices()">refresh</span>
+                {{ isRefreshingDevices() ? 'Checking…' : 'Refresh Devices' }}
+              </button>
+            </div>
+            <div class="guide-card-body ios-setup-body">
+              @if (iosUsbSupport() === 'unsupported_host' || iosUsbSupport() === 'cloud_mode') {
+                <p role="status">iOS USB is unavailable on this server. Run Artemis in local mode on the Mac connected to the iPhone.</p>
+              } @else if (iosUsbSupport() === 'helper_missing') {
+                <p role="status"><strong>Artemis iOS helper not found.</strong> Install compatible Xcode and Go 1.26 or later, then run these commands from the Artemis repository on the server Mac.</p>
+                @for (command of iosHelperCommands; track command; let i = $index) {
+                  <div class="code-box small-box">
+                    <code class="code-text">{{ command }}</code>
+                    <button type="button" class="btn-copy-code" [class.copied]="copiedId() === 'ios_helper_' + i"
+                      (click)="copyToClipboard(command, 'ios_helper_' + i)">
+                      {{ copiedId() === 'ios_helper_' + i ? 'Copied!' : 'Copy' }}
+                    </button>
+                  </div>
+                }
+                <p>Use your server's existing host and port options when restarting. Refresh once the server is back.</p>
+              } @else if (taskDeviceError(); as error) {
+                <p role="status"><strong>iOS discovery failed.</strong> Verify compatible Xcode is selected on the server Mac and refresh.</p>
+                <p>{{ error }}</p>
+              } @else if (iosDevices().length) {
+                <div class="connected-device-panel">
+                  @for (device of iosDevices(); track device.serial) {
+                    <div class="device-hero-card">
+                      <div class="device-avatar">
+                        <span class="material-symbols-outlined device-hero-icon">phone_iphone</span>
+                      </div>
+                      <div class="device-hero-details">
+                        <div class="device-hero-name">{{ device.model || 'iPhone' }}</div>
+                        <div class="device-hero-meta">{{ device.product ? 'iOS ' + device.product + ' · ' : '' }}{{ iosDeviceStatus(device) }}</div>
+                      </div>
+                      @if (device.state === 'device') {
+                        <button type="button" [disabled]="!isSetupReady()" (click)="launchFromSetup(device.serial)">
+                          Use this iPhone
+                        </button>
+                      }
+                    </div>
+                  }
+                </div>
+                <p>Unlock the iPhone and keep it awake and upright before running a task. iOS supports step screenshots, not live video.</p>
+              } @else if (isRefreshingDevices()) {
+                <p role="status">Checking for USB iPhones…</p>
+              } @else {
+                @if (iosUsbSupport() === 'available') {
+                  <p role="status"><strong>No supported USB iPhone found.</strong></p>
+                } @else {
+                  <p role="status">This server did not report iOS setup status. Update the server to check iOS prerequisites here.</p>
+                }
+                <ol>
+                  <li>Connect an iPhone running iOS 27 or later by USB and unlock it.</li>
+                  <li>Tap <strong>Trust This Computer</strong> if prompted.</li>
+                  <li>Enable <strong>Developer Mode</strong> in Settings → Privacy &amp; Security, then refresh.</li>
+                </ol>
+              }
+            </div>
+          </div>
+        }
+
         <!-- Ready Banner Footer: Direct One-Click Launch -->
-        @if (isReady()) {
+        @if (setupPlatform() === 'android' && isSetupReady()) {
           <div class="ready-banner-footer">
             <div class="ready-banner-left">
               <div class="step-badge step-pass">
@@ -1689,7 +1774,7 @@
                 <p class="ready-desc">All dependencies, AI model credentials, and Android device are verified and ready to run.</p>
               </div>
             </div>
-            <button type="button" class="btn-proceed-launch" (click)="setTab('launcher')">
+            <button type="button" class="btn-proceed-launch" (click)="launchFromSetup()">
               <span>Launch Autonomous Task</span>
               <span class="material-symbols-outlined rocket-icon">rocket_launch</span>
             </button>
@@ -1731,7 +1816,10 @@
                 </option>
               }
             </select>
-            <button type="button" (click)="refreshTaskDevices()">Refresh</button>
+            <button type="button" [disabled]="isRefreshingDevices()" (click)="refreshTaskDevices()">Refresh</button>
+            @if (!isIosDeviceReady() || selectedTaskSerial().startsWith('ios:')) {
+              <button type="button" (click)="openIosSetup()">Set up iOS USB</button>
+            }
             @if (selectedTaskSerial().startsWith('ios:')) {
               <small>Unlock the iPhone and keep it awake. Use a preinstalled app's bundle ID in the goal. Step screenshots only.</small>
             }

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from importlib import import_module
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -25,6 +26,42 @@ from artemis.core.diagnostics.schema import (
     ProbeResult,
     ProbeStatus,
 )
+from artemis.runtime.device_pool import DeviceStatus
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("host", "cloud", "helper", "expected"),
+    [
+        ("linux", "0", True, "unsupported_host"),
+        ("darwin", "1", True, "cloud_mode"),
+        ("darwin", "0", False, "helper_missing"),
+        ("darwin", "0", True, "available"),
+    ],
+)
+async def test_device_list_explains_ios_setup_without_hiding_android(
+    monkeypatch, host, cloud, helper, expected
+):
+    device_pool = import_module("artemis.runtime.device_pool")
+    monkeypatch.setattr(device_pool, "sys", SimpleNamespace(platform=host))
+    monkeypatch.setattr(device_pool, "shutil", SimpleNamespace(which=lambda binary: binary if helper else None))
+    monkeypatch.setenv("ARTEMIS_CLOUD_MODE", cloud)
+    monkeypatch.setattr(
+        tasks.device_pool, "list_devices_async", AsyncMock(return_value=[DeviceStatus("pixel", "device")])
+    )
+    discover = AsyncMock(side_effect=RuntimeError("Xcode devicectl unavailable"))
+    monkeypatch.setattr(device_pool.IOSDeviceDriver, "list_devices", discover)
+
+    report = await tasks.list_devices()
+
+    assert report["ios_usb_support"] == expected
+    assert [device["serial"] for device in report["devices"]] == ["pixel"]
+    if expected == "available":
+        discover.assert_awaited_once()
+        assert report["ios_error"] == "Xcode devicectl unavailable"
+    else:
+        discover.assert_not_awaited()
+        assert "ios_error" not in report
 
 
 @pytest.mark.asyncio
